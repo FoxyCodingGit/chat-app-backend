@@ -84,13 +84,23 @@ namespace chat_app_backend
 
             byte[] byteArray = new ArraySegment<byte>(buffer, 0, result.Count).ToArray();
             string message = Encoding.Default.GetString(byteArray);
-            string[] messageSplit = message.Split(messageSplitSymbol, 2);
+            string[] messageSplit = message.Split(messageSplitSymbol, 3);
 
             return new Message
             {
-                Sender = messageSplit[0],
-                Body = messageSplit[1],
+                Type = FindType(messageSplit[0]),
+                Sender = messageSplit[1],
+                Body = messageSplit[2],
             };
+        }
+
+        private static MessageType FindType(string keyword)
+        {
+            if (keyword == "UTILITY")
+            {
+                return MessageType.UTILITY;
+            }
+            return MessageType.MESSAGE;
         }
     }
 }

@@ -11,6 +11,7 @@
     public enum MessageType
     {
         MESSAGE,
-        UTILITY
+        UTILITY,
+        ALL_MESSAGES,
     }
 }

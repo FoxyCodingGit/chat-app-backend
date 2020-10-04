@@ -46,13 +46,35 @@ namespace chat_app_backend
             WebSocketReceiveResult result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             while (!result.CloseStatus.HasValue)
             {
-                try
+                Message message = CreateMessageObject(buffer, result);
+
+                if (message.Type != MessageType.ALL_MESSAGES)
                 {
-                    await SendToAllOpenWebSockets(buffer, result);
+                    conversation.Add(message);
                 }
-                catch (Exception e)
+
+                if (message.Type == MessageType.ALL_MESSAGES)
                 {
-                    Console.WriteLine($"Exception raised: '{e}'. Most likely the message does not include a '|' symbol to differentiate username and message body.");
+                    try
+                    {
+                        await SendAllMessagesToWebSocket(webSocket);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                    }
+                    
+                }
+                else
+                {
+                    try
+                    {
+                        await SendToAllOpenWebSockets(buffer, result);
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"Exception raised: '{e}'. Most likely the message does not include a '|' symbol to differentiate username and message body.");
+                    }
                 }
 
                 result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
@@ -60,11 +82,19 @@ namespace chat_app_backend
             await webSocket.CloseAsync(result.CloseStatus.Value, result.CloseStatusDescription, CancellationToken.None);
         }
 
+        private async Task SendAllMessagesToWebSocket(WebSocket webSocket)
+        {
+            if (conversation.Count == 0)
+            {
+                return;
+            }
+
+            byte[] converstationByteArray = ConvertConversationToByteArray();
+            await webSocket.SendAsync(new ArraySegment<byte>(converstationByteArray, 0, converstationByteArray.Length), WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+
         private async Task SendToAllOpenWebSockets(byte[] buffer, WebSocketReceiveResult result)
         {
-            Message message = GetMessageObject(buffer, result);
-            conversation.Add(message);
-
             for (int i = webSockets.Count - 1; i >= 0; i--)
             {
                 if (webSockets[i].State == WebSocketState.Open)
@@ -78,7 +108,7 @@ namespace chat_app_backend
             }
         }
 
-        private static Message GetMessageObject(byte[] buffer, WebSocketReceiveResult result)
+        private static Message CreateMessageObject(byte[] buffer, WebSocketReceiveResult result)
         {
             char messageSplitSymbol = '|';
 
@@ -96,11 +126,35 @@ namespace chat_app_backend
 
         private static MessageType FindType(string keyword)
         {
+            if (keyword == "ALL_MESSAGES")
+            {
+                return MessageType.ALL_MESSAGES;
+            }
             if (keyword == "UTILITY")
             {
                 return MessageType.UTILITY;
             }
             return MessageType.MESSAGE;
+        }
+
+        private byte[] ConvertConversationToByteArray()
+        {
+            string converstationStringFormat = ConvertConversationToStringFormat();
+            byte[] bytes = Encoding.ASCII.GetBytes(converstationStringFormat);
+            return bytes;
+        }
+
+        private string ConvertConversationToStringFormat()
+        {
+            string output = "";
+            
+            foreach (Message message in conversation)
+            {
+                output += message.Type + "|" + message.Sender + "|" + message.Body + "~";
+            }
+
+            output = output.Remove(output.Length - 1);
+            return output;
         }
     }
 }

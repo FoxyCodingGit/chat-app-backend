@@ -131,7 +131,7 @@ namespace chat_app_backend
                 {
                     var disconnectedUsername = webSocketUsernameAssociation[webSockets[i]];
                     webSockets.RemoveAt(i);
-                    SendUserHasDisconnectedMessage(MessageType.UTILITY, disconnectedUsername, "has disconnected");
+                    SendUserHasDisconnectedMessage(MessageType.CLOSE, disconnectedUsername, "has disconnected");
                 }
             }
         }

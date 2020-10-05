@@ -79,7 +79,13 @@ namespace chat_app_backend
             {
                 webSocketUsernameAssociation[webSocket] = message.Sender;
             }
-            else
+            else if (message.Type == MessageType.CLOSE)
+            {
+                var usernameThatHasLeft = webSocketUsernameAssociation[webSocket];
+                webSockets.Remove(webSocket);
+                SendUserHasDisconnectedMessage(MessageType.CLOSE, usernameThatHasLeft, "has left the chat");
+            }
+            else if (message.Type == MessageType.UTILITY || message.Type == MessageType.MESSAGE)
             {
                 try
                 {
@@ -106,7 +112,7 @@ namespace chat_app_backend
 
         private async Task SendToAllOpenWebSockets(byte[] buffer, WebSocketReceiveResult result)
         {
-            CheckForUserLeave();
+            CheckForUserDisconnect();
 
             for (int i = webSockets.Count - 1; i >= 0; i--)
             {
@@ -117,26 +123,26 @@ namespace chat_app_backend
             }
         }
 
-        private void CheckForUserLeave()
+        private void CheckForUserDisconnect()
         {
             for (int i = webSockets.Count - 1; i >= 0; i--)
             {
                 if (webSockets[i].State != WebSocketState.Open)
                 {
-                    var usernameThatHasLeft = webSocketUsernameAssociation[webSockets[i]];
+                    var disconnectedUsername = webSocketUsernameAssociation[webSockets[i]];
                     webSockets.RemoveAt(i);
-                    SendUserHasLeftMessage(usernameThatHasLeft);
+                    SendUserHasDisconnectedMessage(MessageType.UTILITY, disconnectedUsername, "has disconnected");
                 }
             }
         }
 
-        private async void SendUserHasLeftMessage(string usernameThatHasLeft)
+        private async void SendUserHasDisconnectedMessage(MessageType messageType, string sender, string body)
         {
             Message message = new Message()
             {
-                Type = MessageType.UTILITY,
-                Sender = usernameThatHasLeft,
-                Body = "has left the chat"
+                Type = messageType,
+                Sender = sender,
+                Body = body
             };
             byte[] bytes = Encoding.ASCII.GetBytes(MessageToStringMapping(message));
 
@@ -172,6 +178,7 @@ namespace chat_app_backend
                 "ALL_MESSAGES" => MessageType.ALL_MESSAGES,
                 "UTILITY" => MessageType.UTILITY,
                 "ASSIGN_USER" => MessageType.ASSIGN_USER,
+                "CLOSE" => MessageType.CLOSE,
                 _ => MessageType.MESSAGE
             };
         }

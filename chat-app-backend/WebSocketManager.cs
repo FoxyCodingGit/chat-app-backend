@@ -12,6 +12,7 @@ namespace chat_app_backend
     public class WebSocketManager
     {
         private List<WebSocket> webSockets = new List<WebSocket>();
+        private Dictionary<WebSocket, string> webSocketUsernameAssociation = new Dictionary<WebSocket, string>();
         private List<Message> conversation = new List<Message>();
 
         public void SetupWebSocketConfiguration(IApplicationBuilder app)
@@ -26,6 +27,7 @@ namespace chat_app_backend
                     {
                         WebSocket webSocket = await context.WebSockets.AcceptWebSocketAsync();
                         webSockets.Add(webSocket);
+                        webSocketUsernameAssociation.Add(webSocket, "username not set yet");
                         await Echo(context, webSocket);
                     }
                     else
@@ -46,40 +48,49 @@ namespace chat_app_backend
             WebSocketReceiveResult result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             while (!result.CloseStatus.HasValue)
             {
-                Message message = CreateMessageObject(buffer, result);
-
-                if (message.Type != MessageType.ALL_MESSAGES)
-                {
-                    conversation.Add(message);
-                }
-
-                if (message.Type == MessageType.ALL_MESSAGES)
-                {
-                    try
-                    {
-                        await SendAllMessagesToWebSocket(webSocket);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(e);
-                    }
-                    
-                }
-                else
-                {
-                    try
-                    {
-                        await SendToAllOpenWebSockets(buffer, result);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine($"Exception raised: '{e}'. Most likely the message does not include a '|' symbol to differentiate username and message body.");
-                    }
-                }
+                await PerformSendingLogic(webSocket, buffer, result);
 
                 result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
             }
             await webSocket.CloseAsync(result.CloseStatus.Value, result.CloseStatusDescription, CancellationToken.None);
+        }
+
+        private async Task PerformSendingLogic(WebSocket webSocket, byte[] buffer, WebSocketReceiveResult result)
+        {
+            Message message = CreateMessageObject(buffer, result);
+
+            if (message.Type != MessageType.ALL_MESSAGES && message.Type != MessageType.ASSIGN_USER)
+            {
+                conversation.Add(message);
+            }
+
+            if (message.Type == MessageType.ALL_MESSAGES)
+            {
+                try
+                {
+                    await SendAllMessagesToWebSocket(webSocket);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                }
+            }
+            else if (message.Type == MessageType.ASSIGN_USER)
+            {
+                webSocketUsernameAssociation[webSocket] = message.Sender;
+            }
+            else
+            {
+                try
+                {
+                    await SendToAllOpenWebSockets(buffer, result);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine(
+                        $"Exception raised: '{e}'. Most likely the message does not include a '|' symbol to differentiate username and message body.");
+                }
+            }
         }
 
         private async Task SendAllMessagesToWebSocket(WebSocket webSocket)
@@ -89,21 +100,51 @@ namespace chat_app_backend
                 return;
             }
 
-            byte[] converstationByteArray = ConvertConversationToByteArray();
-            await webSocket.SendAsync(new ArraySegment<byte>(converstationByteArray, 0, converstationByteArray.Length), WebSocketMessageType.Text, true, CancellationToken.None);
+            byte[] conversationByteArray = ConvertConversationToByteArray();
+            await webSocket.SendAsync(new ArraySegment<byte>(conversationByteArray, 0, conversationByteArray.Length), WebSocketMessageType.Text, true, CancellationToken.None);
         }
 
         private async Task SendToAllOpenWebSockets(byte[] buffer, WebSocketReceiveResult result)
         {
+            CheckForUserLeave();
+
             for (int i = webSockets.Count - 1; i >= 0; i--)
             {
                 if (webSockets[i].State == WebSocketState.Open)
                 {
                     await webSockets[i].SendAsync(new ArraySegment<byte>(buffer, 0, result.Count), result.MessageType, result.EndOfMessage, CancellationToken.None);
                 }
-                else
+            }
+        }
+
+        private void CheckForUserLeave()
+        {
+            for (int i = webSockets.Count - 1; i >= 0; i--)
+            {
+                if (webSockets[i].State != WebSocketState.Open)
                 {
+                    var usernameThatHasLeft = webSocketUsernameAssociation[webSockets[i]];
                     webSockets.RemoveAt(i);
+                    SendUserHasLeftMessage(usernameThatHasLeft);
+                }
+            }
+        }
+
+        private async void SendUserHasLeftMessage(string usernameThatHasLeft)
+        {
+            Message message = new Message()
+            {
+                Type = MessageType.UTILITY,
+                Sender = usernameThatHasLeft,
+                Body = "has left the chat"
+            };
+            byte[] bytes = Encoding.ASCII.GetBytes(MessageToStringMapping(message));
+
+            foreach (var webSocket in webSockets)
+            {
+                if (webSocket.State == WebSocketState.Open)
+                {
+                    await webSocket.SendAsync(new ArraySegment<byte>(bytes, 0, bytes.Length), WebSocketMessageType.Text, true, CancellationToken.None);
                 }
             }
         }
@@ -126,21 +167,19 @@ namespace chat_app_backend
 
         private static MessageType FindType(string keyword)
         {
-            if (keyword == "ALL_MESSAGES")
+            return keyword switch
             {
-                return MessageType.ALL_MESSAGES;
-            }
-            if (keyword == "UTILITY")
-            {
-                return MessageType.UTILITY;
-            }
-            return MessageType.MESSAGE;
+                "ALL_MESSAGES" => MessageType.ALL_MESSAGES,
+                "UTILITY" => MessageType.UTILITY,
+                "ASSIGN_USER" => MessageType.ASSIGN_USER,
+                _ => MessageType.MESSAGE
+            };
         }
 
         private byte[] ConvertConversationToByteArray()
         {
-            string converstationStringFormat = ConvertConversationToStringFormat();
-            byte[] bytes = Encoding.ASCII.GetBytes(converstationStringFormat);
+            string conversationStringFormat = ConvertConversationToStringFormat();
+            byte[] bytes = Encoding.ASCII.GetBytes(conversationStringFormat);
             return bytes;
         }
 
@@ -155,6 +194,11 @@ namespace chat_app_backend
 
             output = output.Remove(output.Length - 1);
             return output;
+        }
+
+        private string MessageToStringMapping(Message message)
+        {
+            return message.Type + "|" + message.Sender + "|" + message.Body;
         }
     }
 }

@@ -13,5 +13,6 @@
         MESSAGE,
         UTILITY,
         ALL_MESSAGES,
+        ASSIGN_USER
     }
 }

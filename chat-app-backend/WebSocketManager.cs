@@ -59,11 +59,6 @@ namespace chat_app_backend
         {
             Message message = CreateMessageObject(buffer, result);
 
-            if (message.Type != MessageType.ALL_MESSAGES && message.Type != MessageType.ASSIGN_USER)
-            {
-                conversation.Add(message);
-            }
-
             if (message.Type == MessageType.ALL_MESSAGES)
             {
                 try
@@ -83,7 +78,16 @@ namespace chat_app_backend
             {
                 var usernameThatHasLeft = webSocketUsernameAssociation[webSocket];
                 webSockets.Remove(webSocket);
-                SendUserHasDisconnectedMessage(MessageType.CLOSE, usernameThatHasLeft, "has left the chat");
+
+                var leftMessage = new Message()
+                {
+                    Type = MessageType.CLOSE,
+                    Sender = usernameThatHasLeft,
+                    Body = "has left the chat"
+                };
+
+                SendUserHasDisconnectedMessage(leftMessage);
+                conversation.Add(leftMessage);
             }
             else if (message.Type == MessageType.UTILITY || message.Type == MessageType.MESSAGE)
             {
@@ -96,6 +100,11 @@ namespace chat_app_backend
                     Console.WriteLine(
                         $"Exception raised: '{e}'. Most likely the message does not include a '|' symbol to differentiate username and message body.");
                 }
+            }
+
+            if (message.Type != MessageType.ALL_MESSAGES && message.Type != MessageType.ASSIGN_USER && message.Type != MessageType.CLOSE)
+            {
+                conversation.Add(message);
             }
         }
 
@@ -131,19 +140,22 @@ namespace chat_app_backend
                 {
                     var disconnectedUsername = webSocketUsernameAssociation[webSockets[i]];
                     webSockets.RemoveAt(i);
-                    SendUserHasDisconnectedMessage(MessageType.CLOSE, disconnectedUsername, "has disconnected");
+
+                    var disconnectedMessage = new Message()
+                    {
+                        Type = MessageType.CLOSE,
+                        Sender = disconnectedUsername,
+                        Body = "has disconnected"
+                    };
+
+                    SendUserHasDisconnectedMessage(disconnectedMessage);
+                    conversation.Add(disconnectedMessage);
                 }
             }
         }
 
-        private async void SendUserHasDisconnectedMessage(MessageType messageType, string sender, string body)
+        private async void SendUserHasDisconnectedMessage(Message message)
         {
-            Message message = new Message()
-            {
-                Type = messageType,
-                Sender = sender,
-                Body = body
-            };
             byte[] bytes = Encoding.ASCII.GetBytes(MessageToStringMapping(message));
 
             foreach (var webSocket in webSockets)
